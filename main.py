@@ -1,36 +1,136 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pydeck as pdk
+import math
+import geopandas as gpd  # Import geopandas
 
-st.title('Uber pickups in NYC')
+# Load the data
+state_file = "data/us-state-boundaries.geojson"
+cd_file = "data/CD.geojson"
 
-DATE_COLUMN = 'date/time'
-DATA_URL = ('https://s3-us-west-2.amazonaws.com/'
-            'streamlit-demo-data/uber-raw-data-sep14.csv.gz')
 
 @st.cache
-def load_data(nrows):
-    data = pd.read_csv(DATA_URL, nrows=nrows)
-    lowercase = lambda x: str(x).lower()
-    data.rename(lowercase, axis='columns', inplace=True)
-    data[DATE_COLUMN] = pd.to_datetime(data[DATE_COLUMN])
-    return data
+def data_creation():
+    state_gdf = gpd.read_file(state_file)
+    cd_gdf = gpd.read_file(cd_file)
+    state_gdf["coordinates"] = state_gdf["geometry"].apply(get_coordinates)
+    state_gdf["fill_color"] = state_gdf["objectid"].apply(color_scale)
+    cd_gdf["coordinates"] = cd_gdf["geometry"].apply(get_coordinates)
+    cd_gdf["fill_color"] = cd_gdf["GEOID"].apply(color_scale2)
 
-data_load_state = st.text('Loading data...')
-data = load_data(10000)
-data_load_state.text("Done! (using st.cache_data)")
+    states = pdk.Layer(
+    "PolygonLayer",
+    data=state_gdf,
+    id="geojson",
+    opacity=0.1,
+    get_polygon="coordinates",
+    filled=True,
+    stroked=True,
+    wireframe = True,
+    lineWidthUnits= 'pixels',
+    lineWidthMaxPixels = 10000,
+    lineWidthScale = 1000,
+    get_fill_color="fill_color",
+    get_line_color= [80, 80, 80],
+    highlight_color=[0, 0, 0, 128],
+    auto_highlight=True,
+    pickable=True,
+    )
 
-if st.checkbox('Show raw data'):
-    st.subheader('Raw data')
-    st.write(data)
+    congresional_district = pdk.Layer(
+    "PolygonLayer",
+    data=cd_gdf,
+    id="geojson",
+    opacity=0.5,
+    get_polygon="coordinates",
+    filled=True,
+    stroked=True,
+    wireframe = True,
+    lineWidthUnits= 'pixels',
+    lineWidthMaxPixels = 10000,
+    lineWidthScale = 1000,
+    get_fill_color="fill_color",
+    get_line_color= [80, 80, 80],
+    highlight_color=[0, 0, 0, 128],
+    auto_highlight=True,
+    pickable=True,
+    )
 
-st.subheader('Number of pickups by hour')
-hist_values = np.histogram(data[DATE_COLUMN].dt.hour, bins=24, range=(0,24))[0]
-st.bar_chart(hist_values)
+    tooltip = {"html": "{name}"}
+# Create the map
+    st.pydeck_chart(pdk.Deck(
+    initial_view_state=pdk.ViewState(
+        latitude=37.76,
+        longitude=-95.4,
+        zoom=3,
+        pitch=0,
+    ),
+    effects=[lighting_effect],
+    map_style=pdk.map_styles.LIGHT,
+    tooltip=tooltip,
+    layers=[congresional_district]
+    ))
 
-# Some number in the range 0-23
-hour_to_filter = st.slider('hour', 0, 23, 17)
-filtered_data = data[data[DATE_COLUMN].dt.hour == hour_to_filter]
+COLOR_RANGE = [
+    [255, 245, 188],  # PaleGoldenRod
+    [250, 235, 168],  # Khaki
+    [250, 225, 128],  # LightGoldenrod
+    [240, 190, 40],   # Goldenrod
+    [255, 225, 0],    # Gold
+    [255, 180, 0],    # Orange
+    [255, 140, 0],    # DarkOrange
+    [210, 120, 80],   # Peru
+    [210, 95, 50],    # Chocolate
+    [165, 80, 40],    # SaddleBrown
+    [190, 100, 60],   # Sienna
+    [255, 240, 0],    # Additional color 1 (More Yellow)
+    [255, 200, 0],    # Additional color 2 (Yellow)
+]
+sunlight = {
+    "@@type": "_SunLight",
+    "timestamp": 1564696800000,  # Date.UTC(2019, 7, 1, 22),
+    "color": [255, 255, 255],
+    "intensity": 1.0,
+    "_shadow": True,
+}
+ambient_light = {"@@type": "AmbientLight", "color": [255, 255, 255], "intensity": 1.0}
+lighting_effect = {
+    "@@type": "LightingEffect",
+    "shadowColor": [0, 0, 0, 0.5],
+    "ambientLight": ambient_light,
+    "directionalLights": [sunlight],
+}
 
-st.subheader('Map of all pickups at %s:00' % hour_to_filter)
-st.map(filtered_data)
+# Breaks for the color scale
+BREAKS = [1, 4.92,  8.84, 12.76, 16.68, 20.6, 24.52, 28.44, 32.36, 36.28, 40.2,  44.12, 48.04]
+
+def color_scale(val):
+    for i, b in enumerate(BREAKS):
+        if int(val) < b:
+            return COLOR_RANGE[i]
+    return COLOR_RANGE[i]
+
+def color_scale2(val):
+    for i, b in enumerate(BREAKS):
+        if int(val)/500 < b:
+            return COLOR_RANGE[i]
+    return COLOR_RANGE[i]
+
+def get_coordinates(geom):
+   
+    if geom.geom_type == 'Polygon':
+        return geom.exterior.coords[:]
+    elif geom.geom_type == 'MultiPolygon':
+        return [polygon.exterior.coords[:] for polygon in geom]
+    else:
+        return None
+
+# Calculate coordinates and fill color
+
+
+
+# Set up the map layer
+
+
+data_creation()
